@@ -7,7 +7,7 @@ set -e
 PLUGIN_SUCCESS=false
 
 # --- 1. Uninstall existing packages (Wireguard Go and Tools) ---
-PACKAGES_TO_REMOVE=("wireguard-go" "wireguard-tools")
+PACKAGES_TO_REMOVE="wireguard-go wireguard-tools"
 echo "=================================================="
 echo "Checking for and removing conflicting VPN packages..."
 echo "=================================================="
