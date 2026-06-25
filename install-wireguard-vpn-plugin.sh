@@ -1,35 +1,29 @@
-# Created 2026/06
+#!/bin/bash
 
-# Tested on: 
-# HW: Sony Xperia 10 III
-# OS: Sailfish OS v.5.1.0.11 (Pispala)
-# (Android 13 as base before installing SFOS)
+# Set robust error handling
+set -e
 
- 
-# This script was created for enabling Mullvad VPN configuration
-# on Sailfish OS v.5.1.0.11 (Pispala)
-# The code functionality is copied from the SFOS Wiki:
-# https://sailfishos.wiki/books/network/page/installing-wireguard 
-
-##!/bin/bash
-
-# Packages to potentially remove
-PACKAGES_TO_REMOVE=("wireguard-go" "wireguard-tools")
-# Flag to track if the plugin was successfully installed
+# Global Flag to track if the plugin was successfully installed
 PLUGIN_SUCCESS=false
 
 # --- 1. Uninstall existing packages (Wireguard Go and Tools) ---
+PACKAGES_TO_REMOVE=("wireguard-go" "wireguard-tools")
 echo "=================================================="
 echo "Checking for and removing conflicting VPN packages..."
 echo "=================================================="
 
 # Loop through the list of packages
 for pkg in "${PACKAGES_TO_REMOVE[@]}"; do
-    # Check if the package is installed
-    if pkcon list | grep -q "$pkg"; then
+    echo "--> Checking for $pkg..."
+    # Use 'pkcon list' to check existence *before* attempting removal, minimizing failures.
+    if devel-su pkcon list | grep -q "$pkg"; then
         echo "--> Found $pkg. Attempting removal..."
-        # Execute the removal command for the current package
-        devel-su pkcon remove "$pkg"
+        # Use devel-su prefix for removal
+        if devel-su pkcon remove "$pkg"; then
+            echo "Successfully removed '$pkg'."
+        else
+            echo "WARNING: Could not remove '$pkg'. It might be locked or permissions failed."
+        fi
     else
         echo "--> $pkg not found. Skipping removal."
     fi
@@ -44,46 +38,47 @@ echo "Checking status for plugin: $PLUGIN_NAME"
 echo "====================================================="
 
 # Check if the plugin is already installed
-if local is_installed; then
-    if pkg list | grep -q "$PLUGIN_NAME"; then
-        is_installed=true
-    else
-        is_installed=false
-    fi
-fi
-
-# --- Handle Installation Logic ---
-if is_installed; then
+# We rely on checking the output of pkcon list
+if devel-su pkcon list | grep -q "$PLUGIN_NAME"; then
     echo "NOTICE: Plugin '$PLUGIN_NAME' is already installed."
     read -r -p "Do you want to remove and reinstall it? (yes/no): " reinstall_choice
     if [[ "$reinstall_choice" == "yes" ]]; then
-        # 1. Remove the existing package
+        # Attempt to remove first
         echo "Attempting to remove existing package..."
-        if pkg remove "$PLUGIN_NAME"; then
-            echo "Successfully removed '$PLUGIN_NAME'. Proceeding with installation."
+        if devel-su pkcon remove "$PLUGIN_NAME"; then
+            echo "Successfully removed '$PLUGIN_NAME'. Proceeding with reinstallation."
         else
             echo "WARNING: Failed to remove existing '$PLUGIN_NAME'. Aborting reinstallation."
-            is_installed=false # Treat failure as if it was never installed for the next step
+            # Exit the reinstallation path
+            is_installed=false
         fi
     else
         echo "Skipping reinstallation based on user choice. Keeping existing version."
-        is_installed=true
-    fi
-fi
-
-# 2. Attempt to install or reinstall if necessary
-if ! $is_installed || [[ "$reinstall_choice" == "yes" ]] && ! pkg list | grep -q "$PLUGIN_NAME"; then
-    echo ""
-    echo "Attempting to install/reinstall '$PLUGIN_NAME'..."
-    if pkg install "$PLUGIN_NAME"; then
-        echo "SUCCESS: '$PLUGIN_NAME' installed/reinstalled successfully."
-    else
-        echo "ERROR: Failed to install or reinstall '$PLUGIN_NAME'. Please check repository status."
-        is_installed=false
+        is_installed=true # Assume success if user chooses not to reinstall
     fi
 else
-    # If it was installed and the user chose not to remove/reinstall
-    echo "Skipping package installation as requested."
+    is_installed=false
+fi
+
+
+# 2. Attempt to install or reinstall if necessary
+# This condition handles: 1) If it was never installed, OR 2) If we explicitly decided to reinstall.
+if ! $is_installed || [[ "$reinstall_choice" == "yes" ]] && ! devel-su pkcon list | grep -q "$PLUGIN_NAME"; then
+    echo ""
+    echo "Attempting to install/reinstall '$PLUGIN_NAME'..."
+    
+    # Use devel-su prefix for installation
+    if devel-su pkcon install "$PLUGIN_NAME"; then
+        echo "SUCCESS: '$PLUGIN_NAME' installed/reinstalled successfully."
+        # Crucial: Set the success flag
+        PLUGIN_SUCCESS=true 
+    else
+        echo "ERROR: Failed to install or reinstall '$PLUGIN_NAME'. Please check repository status or package name."
+        PLUGIN_SUCCESS=false
+    fi
+else
+    # If we skipped installation, the flag remains its initial state (false, unless manually set to true earlier)
+    echo "Package installation skipped."
 fi
 
 # --- 3. Finalization ---
@@ -94,11 +89,16 @@ if $PLUGIN_SUCCESS; then
     echo "=================================================="
     echo "Plugin installed successfully. Restarting connman..."
     echo "=================================================="
-    devel-su systemctl restart connman
+    # Use devel-su prefix for systemctl
+    if devel-su systemctl restart connman; then
+        echo "SUCCESS: ConnMan restarted successfully."
+    else
+        echo "WARNING: Failed to restart connman. You may need to run 'devel-su systemctl restart connman' manually."
+    fi
 else
     echo ""
     echo "=================================================="
-    echo "Skipping connman restart because the plugin was not installed or setup failed."
+    echo "Skipping connman restart because the plugin was not successfully installed or setup failed."
     echo "=================================================="
 fi
 
