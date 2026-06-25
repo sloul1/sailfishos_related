@@ -37,28 +37,54 @@ done
 echo "Removal process complete."
 
 # --- 2. Install the required plugin ---
-
 PLUGIN_NAME="jolla-settings-networking-plugin-vpn-wireguard"
 echo ""
-echo "=================================================="
-echo "Attempting to install plugin: $PLUGIN_NAME"
-echo "=================================================="
+echo "====================================================="
+echo "Checking status for plugin: $PLUGIN_NAME"
+echo "====================================================="
 
-# Check if the plugin exists and is available in the repository
-if pkcon search "$PLUGIN_NAME" > /dev/null 2>&1; then
-    # Attempt installation
-    if devel-su pkcon install "$PLUGIN_NAME"; then
-        echo "--> Successfully installed $PLUGIN_NAME."
-        PLUGIN_SUCCESS=true # Set the success flag
+# Check if the plugin is already installed
+if local is_installed; then
+    if pkg list | grep -q "$PLUGIN_NAME"; then
+        is_installed=true
     else
-        echo "--> ERROR: Failed to install $PLUGIN_NAME. Check logs."
-        PLUGIN_SUCCESS=false
+        is_installed=false
     fi
-else
-    echo "WARNING: Plugin $PLUGIN_NAME not found or not available. Skipping installation."
-    PLUGIN_SUCCESS=false
 fi
 
+# --- Handle Installation Logic ---
+if is_installed; then
+    echo "NOTICE: Plugin '$PLUGIN_NAME' is already installed."
+    read -r -p "Do you want to remove and reinstall it? (yes/no): " reinstall_choice
+    if [[ "$reinstall_choice" == "yes" ]]; then
+        # 1. Remove the existing package
+        echo "Attempting to remove existing package..."
+        if pkg remove "$PLUGIN_NAME"; then
+            echo "Successfully removed '$PLUGIN_NAME'. Proceeding with installation."
+        else
+            echo "WARNING: Failed to remove existing '$PLUGIN_NAME'. Aborting reinstallation."
+            is_installed=false # Treat failure as if it was never installed for the next step
+        fi
+    else
+        echo "Skipping reinstallation based on user choice. Keeping existing version."
+        is_installed=true
+    fi
+fi
+
+# 2. Attempt to install or reinstall if necessary
+if ! $is_installed || [[ "$reinstall_choice" == "yes" ]] && ! pkg list | grep -q "$PLUGIN_NAME"; then
+    echo ""
+    echo "Attempting to install/reinstall '$PLUGIN_NAME'..."
+    if pkg install "$PLUGIN_NAME"; then
+        echo "SUCCESS: '$PLUGIN_NAME' installed/reinstalled successfully."
+    else
+        echo "ERROR: Failed to install or reinstall '$PLUGIN_NAME'. Please check repository status."
+        is_installed=false
+    fi
+else
+    # If it was installed and the user chose not to remove/reinstall
+    echo "Skipping package installation as requested."
+fi
 
 # --- 3. Finalization ---
 
